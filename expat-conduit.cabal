@@ -1,0 +1,46 @@
+name:            expat-conduit
+version:         0.0.0
+license:         APL2
+license-file:    LICENSE
+author:          Astro <astro@spaceboyz.net>
+maintainer:      Astro <astro@spaceboyz.net>
+synopsis:        Parse XML with libexpat in a Conduit
+description:
+category:        XML, Conduit
+stability:       Experimental
+cabal-version:   >= 1.8
+build-type:      Simple
+homepage:        http://github.com/astro/expat-conduit
+--extra-source-files: test/main.hs
+
+library
+    build-depends:   base                      >= 4        && < 5
+                   , conduit                   >= 0.4      && < 0.5
+                   , resourcet                 >= 0.3      && < 0.4
+                   , xml-types                 >= 0.3      && < 0.4
+                   , bytestring                >= 0.9      && < 0.10
+                   , mtl                       >= 2.1      && < 2.2
+                   , data-default              >= 0.4      && < 0.5
+                   , containers                >= 0.4      && < 0.5
+                   , text                      >= 0.11     && < 0.12
+    exposed-modules: Text.XML.Expat.Conduit
+    other-modules:   Text.XML.Expat.Conduit.Internal
+    ghc-options:     -Wall
+    extra-libraries: expat
+
+test-suite test
+    type: exitcode-stdio-1.0
+    main-is: main.hs
+    hs-source-dirs: test
+    build-depends:   base
+                   , expat-conduit
+                   , hspec >= 1.2
+                   , HUnit
+                   , xml-types >= 0.3.1
+                   , conduit
+                   , data-default       >= 0.4      && < 0.5
+                   , bytestring                >= 0.9      && < 0.10
+
+source-repository head
+  type:     git
+  location: git://github.com/astro/expat-conduit.git
