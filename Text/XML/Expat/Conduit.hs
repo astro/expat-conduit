@@ -4,6 +4,7 @@ module Text.XML.Expat.Conduit where
 import Data.Conduit
 import Control.Monad.Trans
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import Data.XML.Types
 import Foreign.C.String
 import Foreign.Ptr
@@ -37,7 +38,7 @@ data ExpatEvent = StartElement Text [(Text, Text)]
                   deriving (Eq, Show)
 
 
-data ExpatError = ExpatError
+data ExpatError = ExpatError String
                   deriving (Show, Read, Eq, Typeable)
 
 instance Exception ExpatError
@@ -147,6 +148,10 @@ parseBytes _ =
                  freeHaskellFunPtr startDoctypeDeclHandler
                  freeHaskellFunPtr endDoctypeDeclHandler
                  freeHaskellFunPtr entityDeclHandler
+          makeError parser =
+              liftIO $
+              do cstr <- xmlGetErrorCode parser >>= xmlErrorString
+                 ExpatError <$> BC.unpack <$> B.packCString cstr
           push parser buf =
               do status <-
                      liftIO $
@@ -157,14 +162,16 @@ parseBytes _ =
                    1 ->
                        IOProducing <$> flushEvents
                    _ ->
-                       monadThrow ExpatError
+                       makeError parser >>=
+                       monadThrow
           close parser =
               do status <- liftIO $ xmlParse parser nullPtr 0 1 
                  case status of
                    1 ->
                        flushEvents
                    _ ->
-                       monadThrow ExpatError
+                       makeError parser >>=
+                       monadThrow
               
       conduitIO alloc cleanup push close
 

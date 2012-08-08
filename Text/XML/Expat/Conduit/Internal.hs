@@ -22,6 +22,11 @@ foreign import ccall safe "expat.h XML_Parse"
 foreign import ccall unsafe "expat.h XML_ParserFree"
     xmlParserFree :: XMLParser -> IO ()
                      
+foreign import ccall unsafe "expat.h XML_GetErrorCode"
+    xmlGetErrorCode :: XMLParser -> IO CInt
+foreign import ccall unsafe "expat.h XML_ErrorString"
+    xmlErrorString :: CInt -> IO CString
+                     
 type UserData = ()
 
 type XMLStartElementHandler = Ptr UserData -> CString -> Ptr CString -> IO ()

@@ -66,7 +66,7 @@ expatParsing = do
   it "throws upon incomplete document" $
      do e <- E.catch (Right <$> parseExpat "<r>foo") $
              return . Left
-        e @?= Left ExpatError
+        e @?= Left (ExpatError "no element found")
           
 xmlParsing = do
     
