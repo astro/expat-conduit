@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 module Text.XML.Expat.Conduit where
 
 import Data.Conduit
@@ -17,8 +17,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Foldable (toList)
-import System.IO
 import qualified Data.Map as Map
+import Control.Monad.State
 
 import Text.XML.Expat.Conduit.Internal
 
@@ -185,9 +185,12 @@ attrsToTexts attrs =
                 let attrs'' = attrs' `plusPtr` sizeOf value'
                 ((name'', value'') :) <$> attrsToTexts attrs''
                 
+                
+type NamespaceStack = [Map.Map (Maybe Text) Text]
+                
 -- | Compatibility mapper to Data.XML.Types
 expatToXml :: Monad m => Conduit ExpatEvent m Event
-expatToXml =
+expatToXml = do
     let makeName nsStack name =
             case T.split (== ':') name of
               [prefix, name'] ->
@@ -212,33 +215,57 @@ expatToXml =
                      , nameNamespace = ns
                      , namePrefix = Nothing
                      }
-        push nsStack (StartElement name attrs) =
-            let (nss, attrs') =
-                    foldl (\(nss, attrs') (k, v) ->
-                               case "xmlns:" `T.isPrefixOf` k of
-                                 True ->
-                                     let prefix = Just $ T.drop 6 k
-                                     in (Map.insert prefix v nss, attrs')
-                                 _ | k == "xmlns" ->
-                                     (Map.insert Nothing v nss, attrs')
-                                 _ ->
-                                     (nss, attrs' ++ [(k, v)])
-                          ) (Map.empty, []) attrs
-                nsStack' = nss : nsStack
-                name' = makeName nsStack' name
-                attrs'' = map (\(k, v) ->
-                               ( makeName nsStack' k
-                               , [ContentText v]
-                               )
-                             ) attrs'
-            in return $ StateProducing nsStack' [EventBeginElement name' attrs'']
-        push nsStack (EndElement name) =
-            let name' = makeName nsStack name
-            in return $ StateProducing (tail nsStack) [EventEndElement name']
-        push nsStack (CharacterData s) =
-            return $ StateProducing nsStack [EventContent $
-                                             ContentText s]
-        push nsStack expatEvent =
+                     
+        loop :: Monad m => NamespaceStack -> Conduit ExpatEvent m Event
+        loop nsStack =
+          do mExpatEvent <- await
+             case mExpatEvent of
+               Nothing ->
+                   -- nsStack should be [] at this point
+                   return ()
+               Just expatEvent ->
+                   mapEvent nsStack expatEvent >>=
+                   loop
+                   
+        mapEvent nsStack (StartElement name attrs) =
+            do let (nss, attrs') =
+                       foldl (\(nss, attrs') (k, v) ->
+                                  case "xmlns:" `T.isPrefixOf` k of
+                                    True ->
+                                        let prefix = Just $ T.drop 6 k
+                                        in (Map.insert prefix v nss, attrs')
+                                    _ | k == "xmlns" ->
+                                          (Map.insert Nothing v nss, attrs')
+                                    _ ->
+                                        (nss, attrs' ++ [(k, v)])
+                             ) (Map.empty, []) attrs
+                   nsStack' = nss : nsStack
+                   name' = makeName nsStack' name
+                   attrs'' = map (\(k, v) ->
+                                      (makeName nsStack' k, [ContentText v])
+                                 ) attrs'
+               yield $ EventBeginElement name' attrs''
+               return nsStack'
+        mapEvent nsStack (EndElement name) =
+            do let name' = makeName nsStack name
+               yield $ EventEndElement name'
+               return $ tail nsStack
+        mapEvent nsStack (CharacterData s) =
+            do yield $ EventContent $ ContentText s
+               return nsStack
+        mapEvent nsStack (ProcessingInstruction target data_) =
+            do yield $ EventInstruction $ Instruction target data_
+               return nsStack
+        mapEvent nsStack (Comment s) =
+            do yield $ EventComment s
+               return nsStack
+        {-mapEvent (StartDoctypeDecl doctypeName sysid pubid hasInternalSubset) =
+            return $ StateProducing nsStack [EventBeginDoctype doctypeName $
+                                             Just (-}
+        mapEvent nsStack expatEvent =
             error $ "Unhandled " ++ show expatEvent
-        close _ = return []
-    in conduitState [] push close
+
+    yield EventBeginDocument
+    loop []
+    yield EventEndDocument
+   

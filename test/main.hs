@@ -25,8 +25,8 @@ parseXml s =
 main :: IO ()
 main = 
     hspec $ do
-      describe "expat parsing" $ expatParsing
-      describe "XML parsing" $ xmlParsing
+      describe "parseBytes" $ expatParsing
+      describe "parseBytes $$ expatToXml" $ xmlParsing
         
 expatParsing = do
   
@@ -69,34 +69,43 @@ xmlParsing = do
         
   it "parses a simple document" $ 
      do d <- parseXml "<r/>"
-        d @?= [ EventBeginElement "r" []
+        d @?= [ EventBeginDocument 
+              , EventBeginElement "r" []
               , EventEndElement "r"
+              , EventEndDocument
               ]
           
   it "parses one attribute" $ 
      do d <- parseXml "<r foo='bar'/>"
-        d @?= [ EventBeginElement "r" [("foo", [ContentText "bar"])]
+        d @?= [ EventBeginDocument 
+              , EventBeginElement "r" [("foo", [ContentText "bar"])]
               , EventEndElement "r"
+              , EventEndDocument
               ]
           
   it "parses two attributes" $ 
      do d <- parseXml "<r foo='bar' baz='quux'/>"
-        d @?= [ EventBeginElement "r" [ ("foo", [ContentText "bar"])
+        d @?= [ EventBeginDocument 
+              , EventBeginElement "r" [ ("foo", [ContentText "bar"])
                                       , ("baz", [ContentText "quux"])
                                       ]
               , EventEndElement "r"
+              , EventEndDocument
               ]
 
   it "parses character data" $
      do d <- parseXml "<r>foobar</r>"
-        d @?= [ EventBeginElement "r" []
+        d @?= [ EventBeginDocument 
+              , EventBeginElement "r" []
               , EventContent (ContentText "foobar")
               , EventEndElement "r"
+              , EventEndDocument
               ]
           
   it "parses xmlns" $
      do d <- parseXml "<r xmlns='foo'><c/></r>"
-        d @?= [ EventBeginElement
+        d @?= [ EventBeginDocument 
+              , EventBeginElement
                 Name { nameLocalName = "r"
                      , nameNamespace = Just "foo"
                      , namePrefix = Nothing
@@ -116,12 +125,14 @@ xmlParsing = do
                      , nameNamespace = Just "foo"
                      , namePrefix = Nothing
                      }
+              , EventEndDocument
               ]
   
   it "parses prefixed xmlns" $
      do parseExpat "<p:r xmlns:p='bar'/>" >>= print
         d <- parseXml "<p:r xmlns:p='bar'/>"
-        d @?= [ EventBeginElement
+        d @?= [ EventBeginDocument 
+              , EventBeginElement
                 Name { nameLocalName = "r"
                      , nameNamespace = Just "bar"
                      , namePrefix = Just "p"
@@ -131,11 +142,13 @@ xmlParsing = do
                      , nameNamespace = Just "bar"
                      , namePrefix = Just "p"
                      }
+              , EventEndDocument
               ]
   
   it "parses nested prefixed xmlns" $
      do d <- parseXml "<p:r xmlns:p='foo'><p:c xmlns:p='bar'/><p:c/></p:r>"
-        d @?= [ EventBeginElement
+        d @?= [ EventBeginDocument 
+              , EventBeginElement
                 Name { nameLocalName = "r"
                      , nameNamespace = Just "foo"
                      , namePrefix = Just "p"
@@ -165,4 +178,5 @@ xmlParsing = do
                      , nameNamespace = Just "foo"
                      , namePrefix = Just "p"
                      }
+              , EventEndDocument
               ]
