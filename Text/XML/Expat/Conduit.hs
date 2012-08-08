@@ -30,7 +30,7 @@ data ExpatEvent = StartElement Text [(Text, Text)]
                 | Comment Text
                 | StartCdataSection
                 | EndCdataSection
-                | StartDoctypeDecl Text Text Text Bool
+                | StartDoctypeDecl Text (Maybe Text) (Maybe Text) Bool
                 | EndDoctypeDecl
                 -- EntityDecl
                   deriving (Eq, Show)
@@ -98,8 +98,8 @@ parseBytes _ =
           mkStartDoctypeDeclHandler $ \_ doctypeName sysid pubid hasInternalSubset ->
               StartDoctypeDecl <$>
               cstringToText doctypeName <*>
-              cstringToText sysid <*>
-              cstringToText pubid <*>
+              cstringToMaybeText sysid <*>
+              cstringToMaybeText pubid <*>
               (pure $ hasInternalSubset /= 0) >>=
               addEvent
       endDoctypeDeclHandler <-
@@ -260,12 +260,23 @@ expatToXml = do
                                 error "Unterminated CDATA section"
                consumeCdata
                return nsStack
-        {-mapEvent (StartDoctypeDecl doctypeName sysid pubid hasInternalSubset) =
-            return $ StateProducing nsStack [EventBeginDoctype doctypeName $
-                                             Just (-}
-            
-        mapEvent nsStack expatEvent =
-            error $ "Unhandled " ++ show expatEvent
+        mapEvent nsStack EndCdataSection =
+            -- ignore to mute compiler warnings
+            return nsStack
+        mapEvent nsStack (StartDoctypeDecl doctypeName mSysId mPubId _) =
+            do let externalId =
+                       case (mSysId, mPubId) of
+                         (Just sysId, Just pubId) ->
+                             Just $ PublicID sysId pubId
+                         (Just sysId, _) ->
+                             Just $ SystemID sysId
+                         (_, _) ->
+                             Nothing
+               yield $ EventBeginDoctype doctypeName externalId
+               return nsStack
+        mapEvent nsStack EndDoctypeDecl =
+            do yield EventEndDoctype
+               return nsStack
 
     yield EventBeginDocument
     loop []

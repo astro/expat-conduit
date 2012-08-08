@@ -190,3 +190,13 @@ xmlParsing = do
               , EventEndDocument
               ]
           
+  it "parses DOCTYPE" $
+     do d <- parseXml "<!DOCTYPE html><html/>"
+        d @?= [ EventBeginDocument
+              , EventBeginDoctype "html" Nothing
+              , EventEndDoctype
+              , EventBeginElement "html" []
+              , EventEndElement "html"
+              , EventEndDocument
+              ]
+          
