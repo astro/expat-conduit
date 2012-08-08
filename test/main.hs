@@ -180,3 +180,13 @@ xmlParsing = do
                      }
               , EventEndDocument
               ]
+
+  it "parses CDATA" $
+     do d <- parseXml "<r><![CDATA[frobfrobfrob]]></r>"
+        d @?= [ EventBeginDocument
+              , EventBeginElement "r" []
+              , EventCDATA "frobfrobfrob"
+              , EventEndElement "r"
+              , EventEndDocument
+              ]
+          

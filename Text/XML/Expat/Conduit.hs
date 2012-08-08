@@ -259,6 +259,19 @@ expatToXml = do
         mapEvent nsStack (Comment s) =
             do yield $ EventComment s
                return nsStack
+        mapEvent nsStack StartCdataSection =
+            do let consumeCdata =
+                       do mExpatEvent <- await
+                          case mExpatEvent of
+                            Just (CharacterData s) ->
+                                do yield $ EventCDATA s
+                                   consumeCdata
+                            Just EndCdataSection ->
+                                return ()
+                            _ ->
+                                error "Unterminated CDATA section"
+               consumeCdata
+               return nsStack
         {-mapEvent (StartDoctypeDecl doctypeName sysid pubid hasInternalSubset) =
             return $ StateProducing nsStack [EventBeginDoctype doctypeName $
                                              Just (-}
