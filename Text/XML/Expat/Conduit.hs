@@ -33,7 +33,6 @@ data ExpatEvent = StartElement Text [(Text, Text)]
                 | StartDoctypeDecl Text Text Text Bool
                 | EndDoctypeDecl
                 -- EntityDecl
-                | NotationDecl Text Text Text Text
                   deriving (Eq, Show)
 
 
@@ -112,15 +111,6 @@ parseBytes _ =
           mkEntityDeclHandler $ \_ entityName isParameterEntity value valueLen base systemId publicId notationName ->
               --addEvent EntityDecl
               return ()
-      notationDeclHandler <-
-          liftIO $
-          mkNotationDeclHandler $ \_ notationName base systemId publicId ->
-              (NotationDecl <$>
-              cstringToText notationName <*>
-              cstringToText base <*>
-              cstringToText systemId <*>
-              cstringToText publicId) >>=
-              addEvent
           
       -- conduitIO parameters
       let alloc = 
@@ -136,7 +126,6 @@ parseBytes _ =
                  xmlSetStartDoctypeDeclHandler parser startDoctypeDeclHandler
                  xmlSetEndDoctypeDeclHandler parser endDoctypeDeclHandler
                  xmlSetEntityDeclHandler parser entityDeclHandler
-                 xmlSetNotationDeclHandler parser notationDeclHandler
                  return parser
           cleanup parser =
               do xmlParserFree parser
@@ -150,7 +139,6 @@ parseBytes _ =
                  freeHaskellFunPtr startDoctypeDeclHandler
                  freeHaskellFunPtr endDoctypeDeclHandler
                  freeHaskellFunPtr entityDeclHandler
-                 freeHaskellFunPtr notationDeclHandler
           push parser buf =
               liftIO $
               B.useAsCStringLen buf $ \(str, len) ->
@@ -275,6 +263,7 @@ expatToXml = do
         {-mapEvent (StartDoctypeDecl doctypeName sysid pubid hasInternalSubset) =
             return $ StateProducing nsStack [EventBeginDoctype doctypeName $
                                              Just (-}
+            
         mapEvent nsStack expatEvent =
             error $ "Unhandled " ++ show expatEvent
 
