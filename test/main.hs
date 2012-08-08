@@ -8,6 +8,8 @@ import Text.XML.Expat.Conduit
 import Data.XML.Types
 import Data.Default
 import Data.ByteString.Char8 ()
+import qualified Control.Exception as E
+import Control.Applicative
 
 parseExpat s =
     runResourceT $
@@ -60,6 +62,11 @@ expatParsing = do
               , CharacterData "foobar"
               , EndElement "r"
               ]
+          
+  it "throws upon incomplete document" $
+     do e <- E.catch (Right <$> parseExpat "<r>foo") $
+             return . Left
+        e @?= Left ExpatError
           
 xmlParsing = do
     

@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, TupleSections #-}
+{-# LANGUAGE OverloadedStrings, TupleSections, DeriveDataTypeable, TypeFamilies #-}
 module Text.XML.Expat.Conduit where
 
 import Data.Conduit
@@ -18,10 +18,11 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Foldable (toList)
 import qualified Data.Map as Map
-import Control.Monad.State
+import Control.Monad.Error.Class
+import Control.Exception (Exception)
+import Data.Typeable (Typeable)
 
 import Text.XML.Expat.Conduit.Internal
-
 
 data ExpatEvent = StartElement Text [(Text, Text)]
                 | EndElement Text
@@ -34,6 +35,12 @@ data ExpatEvent = StartElement Text [(Text, Text)]
                 | EndDoctypeDecl
                 -- EntityDecl
                   deriving (Eq, Show)
+
+
+data ExpatError = ExpatError
+                  deriving (Show, Read, Eq, Typeable)
+
+instance Exception ExpatError
 
 
 data ParseSettings = ParseSettings
@@ -53,6 +60,7 @@ parseBytes _ =
               readIORef events >>=
               writeIORef events . (|> e)
           flushEvents =
+              liftIO $
               toList <$> readIORef events <*
               writeIORef events Seq.empty
       
@@ -140,14 +148,23 @@ parseBytes _ =
                  freeHaskellFunPtr endDoctypeDeclHandler
                  freeHaskellFunPtr entityDeclHandler
           push parser buf =
-              liftIO $
-              B.useAsCStringLen buf $ \(str, len) ->
-                  do let len' = fromIntegral len
-                     _status <- xmlParse parser str len' 0
-                     IOProducing <$> flushEvents
-          close _parser =
-              -- TODO: finalize
-              return []
+              do status <-
+                     liftIO $
+                     B.useAsCStringLen buf $ \(str, len) ->
+                         let len' = fromIntegral len
+                         in xmlParse parser str len' 0
+                 case status of
+                   1 ->
+                       IOProducing <$> flushEvents
+                   _ ->
+                       monadThrow ExpatError
+          close parser =
+              do status <- liftIO $ xmlParse parser nullPtr 0 1 
+                 case status of
+                   1 ->
+                       flushEvents
+                   _ ->
+                       monadThrow ExpatError
               
       conduitIO alloc cleanup push close
 
