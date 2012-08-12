@@ -67,6 +67,35 @@ expatParsing = do
      do e <- E.catch (Right <$> parseExpat "<r>foo") $
              return . Left
         e @?= Left (ExpatError "no element found")
+        
+  it "parses iso-8859-1" $
+     do d <- parseExpat "<?xml version=\"1.0\" encoding=\"iso-8859-1\"?><r \xe4='\xf6'>\xfc</r>"
+        d @?= [ StartElement "r" [("ä", "ö")]
+              , CharacterData "ü"
+              , EndElement "r"
+              ]
+        
+  it "parses utf-8" $
+     do d <- parseExpat "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<r \xc3\xa4='\xc3\xb6'>\xc3\xbc</r>"
+        d @?= [ StartElement "r" [("ä", "ö")]
+              , CharacterData "ü"
+              , EndElement "r"
+              ]
+        
+  it "handles standard entities" $
+     do d <- parseExpat "<r a='&lt;'>&amp;</r>"
+        d @?= [ StartElement "r" [("a", "<")]
+              , CharacterData "&"
+              , EndElement "r"
+              ]
+          
+  it "handles unknown entities" $
+     do d <- parseExpat "<r>&auml;</r>"
+        d @?= [ StartElement "r" []
+              , CharacterData "ä"
+              , EndElement "r"
+              ]
+          
           
 xmlParsing = do
     
