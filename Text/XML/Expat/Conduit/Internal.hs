@@ -94,3 +94,15 @@ foreign import ccall "wrapper"
     mkNotationDeclHandler :: XMLNotationDeclHandler -> IO (FunPtr XMLNotationDeclHandler)
 foreign import ccall unsafe "expat.h XML_SetNotationDeclHandler"
     xmlSetNotationDeclHandler :: XMLParser -> FunPtr XMLNotationDeclHandler -> IO ()
+
+type XMLSkippedEntityHandler = Ptr UserData -> CString -> CInt -> IO ()
+foreign import ccall "wrapper"
+    mkSkippedEntityHandler :: XMLSkippedEntityHandler -> IO (FunPtr XMLSkippedEntityHandler)
+foreign import ccall unsafe "expat.h XML_SetSkippedEntityHandler"
+    xmlSetSkippedEntityHandler :: XMLParser -> FunPtr XMLSkippedEntityHandler -> IO ()
+
+type XMLUnknownEncodingHandler = Ptr () -> CString -> Ptr () -> IO CInt
+foreign import ccall "wrapper"
+    mkUnknownEncodingHandler :: XMLUnknownEncodingHandler -> IO (FunPtr XMLUnknownEncodingHandler)
+foreign import ccall unsafe "expat.h XML_SetUnknownEncodingHandler"
+    xmlSetUnknownEncodingHandler :: XMLParser -> FunPtr XMLUnknownEncodingHandler -> Ptr () -> IO ()

@@ -120,6 +120,15 @@ parseBytes _ =
           mkEntityDeclHandler $ \_ entityName isParameterEntity value valueLen base systemId publicId notationName ->
               --addEvent EntityDecl
               return ()
+      skippedEntityHandler <-
+          liftIO $
+          mkSkippedEntityHandler $ \_ entityName isParameterEntity ->
+              hPrint stderr entityName
+      unknownEncodingHandler <-
+          liftIO $
+          mkUnknownEncodingHandler $ \_ encoding infoPtr ->
+              cstringToMaybeText encoding >>= hPrint stderr
+              >> return 0
           
       -- conduitIO parameters
       let alloc = 
@@ -135,6 +144,8 @@ parseBytes _ =
                  xmlSetStartDoctypeDeclHandler parser startDoctypeDeclHandler
                  xmlSetEndDoctypeDeclHandler parser endDoctypeDeclHandler
                  xmlSetEntityDeclHandler parser entityDeclHandler
+                 xmlSetSkippedEntityHandler parser skippedEntityHandler
+                 xmlSetUnknownEncodingHandler parser unknownEncodingHandler nullPtr
                  return parser
           cleanup parser =
               do xmlParserFree parser
@@ -148,6 +159,8 @@ parseBytes _ =
                  freeHaskellFunPtr startDoctypeDeclHandler
                  freeHaskellFunPtr endDoctypeDeclHandler
                  freeHaskellFunPtr entityDeclHandler
+                 freeHaskellFunPtr skippedEntityHandler
+                 freeHaskellFunPtr unknownEncodingHandler
           makeError parser =
               liftIO $
               do cstr <- xmlGetErrorCode parser >>= xmlErrorString
