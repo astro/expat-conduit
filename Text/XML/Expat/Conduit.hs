@@ -22,6 +22,8 @@ import qualified Data.Map as Map
 import Control.Monad.Error.Class
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
+import System.IO
+import Control.Monad.Trans.Resource (register)
 
 import Text.XML.Expat.Conduit.Internal
 
@@ -124,69 +126,57 @@ parseBytes _ =
           liftIO $
           mkSkippedEntityHandler $ \_ entityName isParameterEntity ->
               hPrint stderr entityName
-      unknownEncodingHandler <-
-          liftIO $
-          mkUnknownEncodingHandler $ \_ encoding infoPtr ->
-              cstringToMaybeText encoding >>= hPrint stderr
-              >> return 0
           
-      -- conduitIO parameters
-      let alloc = 
-              do encoding <- newCString "UTF-8"
-                 parser <- xmlParserCreate encoding
-                 xmlSetStartElementHandler parser startElementHandler
-                 xmlSetEndElementHandler parser endElementHandler
-                 xmlSetCharacterDataHandler parser characterDataHandler
-                 xmlSetProcessingInstructionHandler parser processingInstructionHandler
-                 xmlSetCommentHandler parser commentHandler
-                 xmlSetStartCdataSectionHandler parser startCdataSectionHandler
-                 xmlSetEndCdataSectionHandler parser endCdataSectionHandler
-                 xmlSetStartDoctypeDeclHandler parser startDoctypeDeclHandler
-                 xmlSetEndDoctypeDeclHandler parser endDoctypeDeclHandler
-                 xmlSetEntityDeclHandler parser entityDeclHandler
-                 xmlSetSkippedEntityHandler parser skippedEntityHandler
-                 xmlSetUnknownEncodingHandler parser unknownEncodingHandler nullPtr
-                 return parser
-          cleanup parser =
-              do xmlParserFree parser
-                 freeHaskellFunPtr startElementHandler
-                 freeHaskellFunPtr endElementHandler
-                 freeHaskellFunPtr characterDataHandler
-                 freeHaskellFunPtr processingInstructionHandler
-                 freeHaskellFunPtr commentHandler
-                 freeHaskellFunPtr startCdataSectionHandler
-                 freeHaskellFunPtr endCdataSectionHandler
-                 freeHaskellFunPtr startDoctypeDeclHandler
-                 freeHaskellFunPtr endDoctypeDeclHandler
-                 freeHaskellFunPtr entityDeclHandler
-                 freeHaskellFunPtr skippedEntityHandler
-                 freeHaskellFunPtr unknownEncodingHandler
-          makeError parser =
-              liftIO $
-              do cstr <- xmlGetErrorCode parser >>= xmlErrorString
-                 ExpatError <$> BC.unpack <$> B.packCString cstr
-          push parser buf =
-              do status <-
+      parser <- 
+          liftIO $
+          do encoding <- newCString "UTF-8"
+             xmlParserCreate encoding
+      lift $ register $
+               xmlParserFree parser
+      let setHandler :: MonadResource m => 
+                        (XMLParser -> FunPtr a -> IO ()) -> FunPtr a -> m ()
+          setHandler m f =
+            do liftIO $ m parser f
+               register $ freeHaskellFunPtr f
+               return ()
+      lift $ do
+        setHandler xmlSetStartElementHandler startElementHandler
+        setHandler xmlSetEndElementHandler endElementHandler
+        setHandler xmlSetCharacterDataHandler characterDataHandler
+        setHandler xmlSetProcessingInstructionHandler processingInstructionHandler
+        setHandler xmlSetCommentHandler commentHandler
+        setHandler xmlSetStartCdataSectionHandler startCdataSectionHandler
+        setHandler xmlSetEndCdataSectionHandler endCdataSectionHandler
+        setHandler xmlSetStartDoctypeDeclHandler startDoctypeDeclHandler
+        setHandler xmlSetEndDoctypeDeclHandler endDoctypeDeclHandler
+        setHandler xmlSetEntityDeclHandler entityDeclHandler
+        setHandler xmlSetSkippedEntityHandler skippedEntityHandler
+      
+      let run = do
+            mBuf <- await
+            status <-
+                case mBuf of
+                  Just buf ->
                      liftIO $
                      B.useAsCStringLen buf $ \(str, len) ->
-                         let len' = fromIntegral len
-                         in xmlParse parser str len' 0
-                 case status of
-                   1 ->
-                       IOProducing <$> flushEvents
-                   _ ->
-                       makeError parser >>=
-                       monadThrow
-          close parser =
-              do status <- liftIO $ xmlParse parser nullPtr 0 1 
-                 case status of
-                   1 ->
-                       flushEvents
-                   _ ->
-                       makeError parser >>=
-                       monadThrow
+                     xmlParse parser str (fromIntegral len) 0
+                  Nothing ->
+                      liftIO $
+                      xmlParse parser nullPtr 0 1 
+            case status of
+              1 ->
+                  -- Success:
+                  flushEvents >>=
+                  mapM yield >>
+                  maybe (return ()) (const run) mBuf
+              _ ->
+                  -- Make error:
+                  liftIO $
+                  xmlGetErrorCode parser >>= xmlErrorString >>=
+                  (ExpatError . BC.unpack <$>) . B.packCString >>=
+                  monadThrow
+      run
               
-      conduitIO alloc cleanup push close
 
 cstringToText :: CString -> IO Text
 cstringToText s = decodeUtf8 <$> B.packCString s
