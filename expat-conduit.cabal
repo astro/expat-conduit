@@ -1,7 +1,7 @@
 name:            expat-conduit
 version:         0.0.0
 license:         APL2
-license-file:    LICENSE
+-- license-file:    LICENSE
 author:          Astro <astro@spaceboyz.net>
 maintainer:      Astro <astro@spaceboyz.net>
 synopsis:        Parse XML with libexpat in a Conduit
