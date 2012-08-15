@@ -5,7 +5,7 @@ import Data.Conduit
 import Control.Monad.Trans
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
-import Data.XML.Types
+import Data.XML.Types hiding (doctypeName)
 import Foreign.C.String
 import Foreign.Ptr
 import Foreign.Storable
@@ -19,10 +19,8 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.Foldable (toList)
 import qualified Data.Map as Map
-import Control.Monad.Error.Class
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
-import System.IO
 import Control.Monad.Trans.Resource (register)
 
 import Text.XML.Expat.Conduit.Internal
@@ -117,27 +115,19 @@ parseBytes _ =
           liftIO $
           mkEndDoctypeDeclHandler $ \_ ->
               addEvent EndDoctypeDecl
-      entityDeclHandler <-
-          liftIO $
-          mkEntityDeclHandler $ \_ entityName isParameterEntity value valueLen base systemId publicId notationName ->
-              --addEvent EntityDecl
-              return ()
-      skippedEntityHandler <-
-          liftIO $
-          mkSkippedEntityHandler $ \_ entityName isParameterEntity ->
-              hPrint stderr entityName
-          
+              
       parser <- 
           liftIO $
-          do encoding <- newCString "UTF-8"
+          do let encoding = nullPtr
              xmlParserCreate encoding
-      lift $ register $
-               xmlParserFree parser
+      _ <-
+          lift $ register $
+          xmlParserFree parser
       let setHandler :: MonadResource m => 
                         (XMLParser -> FunPtr a -> IO ()) -> FunPtr a -> m ()
           setHandler m f =
             do liftIO $ m parser f
-               register $ freeHaskellFunPtr f
+               _ <- register $ freeHaskellFunPtr f
                return ()
       lift $ do
         setHandler xmlSetStartElementHandler startElementHandler
@@ -149,8 +139,6 @@ parseBytes _ =
         setHandler xmlSetEndCdataSectionHandler endCdataSectionHandler
         setHandler xmlSetStartDoctypeDeclHandler startDoctypeDeclHandler
         setHandler xmlSetEndDoctypeDeclHandler endDoctypeDeclHandler
-        setHandler xmlSetEntityDeclHandler entityDeclHandler
-        setHandler xmlSetSkippedEntityHandler skippedEntityHandler
       
       let run = do
             mBuf <- await
@@ -243,7 +231,7 @@ expatToXml = do
                    loop
                    
         mapEvent nsStack (StartElement name attrs) =
-            do let (nss, attrs') =
+            do let (nss', attrs'') =
                        foldl (\(nss, attrs') (k, v) ->
                                   case "xmlns:" `T.isPrefixOf` k of
                                     True ->
@@ -254,12 +242,12 @@ expatToXml = do
                                     _ ->
                                         (nss, attrs' ++ [(k, v)])
                              ) (Map.empty, []) attrs
-                   nsStack' = nss : nsStack
+                   nsStack' = nss' : nsStack
                    name' = makeName nsStack' name
-                   attrs'' = map (\(k, v) ->
-                                      (makeName nsStack' k, [ContentText v])
-                                 ) attrs'
-               yield $ EventBeginElement name' attrs''
+                   attrs''' = map (\(k, v) ->
+                                       (makeName nsStack' k, [ContentText v])
+                                  ) attrs''
+               yield $ EventBeginElement name' attrs'''
                return nsStack'
         mapEvent nsStack (EndElement name) =
             do let name' = makeName nsStack name

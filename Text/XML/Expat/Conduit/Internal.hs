@@ -101,8 +101,20 @@ foreign import ccall "wrapper"
 foreign import ccall unsafe "expat.h XML_SetSkippedEntityHandler"
     xmlSetSkippedEntityHandler :: XMLParser -> FunPtr XMLSkippedEntityHandler -> IO ()
 
+type XMLExternalEntityRefHandler = Ptr UserData -> CString -> CString -> CString -> CString -> IO CInt
+foreign import ccall "wrapper"
+    mkExternalEntityRefHandler :: XMLExternalEntityRefHandler -> IO (FunPtr XMLExternalEntityRefHandler)
+foreign import ccall unsafe "expat.h XML_SetExternalEntityRefHandler"
+    xmlSetExternalEntityRefHandler :: XMLParser -> FunPtr XMLExternalEntityRefHandler -> IO ()
+
 type XMLUnknownEncodingHandler = Ptr () -> CString -> Ptr () -> IO CInt
 foreign import ccall "wrapper"
     mkUnknownEncodingHandler :: XMLUnknownEncodingHandler -> IO (FunPtr XMLUnknownEncodingHandler)
 foreign import ccall unsafe "expat.h XML_SetUnknownEncodingHandler"
     xmlSetUnknownEncodingHandler :: XMLParser -> FunPtr XMLUnknownEncodingHandler -> Ptr () -> IO ()
+
+type XMLDefaultHandler = Ptr () -> CString -> CInt -> IO ()
+foreign import ccall "wrapper"
+    mkDefaultHandler :: XMLDefaultHandler -> IO (FunPtr XMLDefaultHandler)
+foreign import ccall unsafe "expat.h XML_SetDefaultHandler"
+    xmlSetDefaultHandler :: XMLParser -> FunPtr XMLDefaultHandler -> IO ()
