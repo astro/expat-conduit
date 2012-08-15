@@ -4,6 +4,7 @@ module Text.XML.Expat.Conduit where
 import Data.Conduit
 import Control.Monad.Trans
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import Data.XML.Types hiding (doctypeName)
 import Foreign.C.String
 import Foreign.Ptr
@@ -46,10 +47,22 @@ instance Default ParseSettings where
     def = ParseSettings
 
 
-parseBytes :: MonadResource m =>
+parseBytes :: (MonadThrow m, MonadResource m) =>
               ParseSettings ->
               Conduit B.ByteString m ExpatEvent
 parseBytes _ =
+  parseBytes' =$= throwErrors
+      where throwErrors = 
+                await >>=
+                maybe (return ())
+                (either (lift . monadThrow) $ \event -> 
+                     do yield event
+                        throwErrors
+                )
+              
+parseBytes' :: MonadResource m =>
+               Conduit B.ByteString m (Either ExpatError ExpatEvent)
+parseBytes' =
     ioProcess $ \recvInput sendOutput -> 
     runResourceT $ do
       parser <- liftIO $
@@ -58,7 +71,8 @@ parseBytes _ =
            liftIO $
            xmlParserFree parser
                       
-      let sendEvent = sendOutput . Just
+      let sendEvent = sendOutput . Just . Right
+          sendError = sendOutput . Just . Left
       -- SAX Handlers
       startElementHandler <-
           liftIO $
@@ -129,14 +143,23 @@ parseBytes _ =
           
       let loop = do
             mData <- recvInput
-            case mData of
-              -- Push data
-              Just buf ->
-                  B.useAsCStringLen buf $ \(str, len) ->
-                  xmlParse parser str (fromIntegral len) 0
-              -- EOF
-              Nothing ->
-                  xmlParse parser nullPtr 0 1
+            status <-
+              case mData of
+                -- Push data
+                Just buf ->
+                    B.useAsCStringLen buf $ \(str, len) ->
+                    xmlParse parser str (fromIntegral len) 0
+                -- EOF
+                Nothing ->
+                    xmlParse parser nullPtr 0 1
+            case status of
+              1 ->
+                  return ()
+              _ ->
+                  xmlGetErrorCode parser >>=
+                  xmlErrorString >>=
+                  (ExpatError . BC.unpack <$>) . B.packCString >>=
+                  sendError
                                 
             -- Events over for now, send next input
             sendOutput Nothing
@@ -166,8 +189,8 @@ ioProcess f =
        let consumeOutput =
              do mOutput <- liftIO $ takeMVar output
                 case mOutput of
-                  Just output ->
-                      do yield output
+                  Just output' ->
+                      do yield output'
                          -- Loop
                          consumeOutput
                   Nothing ->
