@@ -4,24 +4,21 @@ module Text.XML.Expat.Conduit where
 import Data.Conduit
 import Control.Monad.Trans
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as BC
 import Data.XML.Types hiding (doctypeName)
 import Foreign.C.String
 import Foreign.Ptr
 import Foreign.Storable
 import Data.Default
-import Data.IORef
-import qualified Data.Sequence as Seq
-import Data.Sequence ((|>))
+import Control.Concurrent hiding (yield)
 import Control.Applicative
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
-import Data.Foldable (toList)
 import qualified Data.Map as Map
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
 import Control.Monad.Trans.Resource (register)
+
 
 import Text.XML.Expat.Conduit.Internal
 
@@ -36,7 +33,6 @@ data ExpatEvent = StartElement Text [(Text, Text)]
                 | EndDoctypeDecl
                 -- EntityDecl
                   deriving (Eq, Show)
-
 
 data ExpatError = ExpatError String
                   deriving (Show, Read, Eq, Typeable)
@@ -55,116 +51,137 @@ parseBytes :: MonadResource m =>
               Conduit B.ByteString m ExpatEvent
 parseBytes _ =
     do
-      -- Output buffer
-      events <- liftIO $ newIORef Seq.empty
-      let addEvent e =
-              readIORef events >>=
-              writeIORef events . (|> e)
-          flushEvents =
-              liftIO $
-              toList <$> readIORef events <*
-              writeIORef events Seq.empty
+      input <- liftIO newEmptyMVar
+      output <- liftIO newEmptyMVar
       
-      -- SAX Handlers
-      startElementHandler <-
-          liftIO $
-          mkStartElementHandler $ \_ name attrs ->
-              do name' <- cstringToText name
-                 attrs' <- attrsToTexts attrs
-                 addEvent $ StartElement name' attrs'
-      endElementHandler <-
-          liftIO $
-          mkEndElementHandler $ \_ name ->
-              cstringToText name >>=
-              addEvent . EndElement
-      characterDataHandler <-
-          liftIO $
-          mkCharacterDataHandler $ \_ buf len ->
-              decodeUtf8 <$> B.packCStringLen (buf, fromIntegral len) >>=
-              addEvent . CharacterData
-      processingInstructionHandler <-
-          liftIO $
-          mkProcessingInstructionHandler $ \_ target data_ ->
-              ProcessingInstruction <$>
-              cstringToText target <*>
-              cstringToText data_ >>=
-              addEvent
-      commentHandler <-
-          liftIO $
-          mkCommentHandler $ \_ s ->
-              cstringToText s >>=
-              addEvent . Comment
-      startCdataSectionHandler <-
-          liftIO $
-          mkStartCdataSectionHandler $ \_ ->
-              addEvent StartCdataSection
-      endCdataSectionHandler <-
-          liftIO $
-          mkEndCdataSectionHandler $ \_ ->
-              addEvent EndCdataSection
-      startDoctypeDeclHandler <-
-          liftIO $
-          mkStartDoctypeDeclHandler $ \_ doctypeName sysid pubid hasInternalSubset ->
-              StartDoctypeDecl <$>
-              cstringToText doctypeName <*>
-              cstringToMaybeText sysid <*>
-              cstringToMaybeText pubid <*>
-              (pure $ hasInternalSubset /= 0) >>=
-              addEvent
-      endDoctypeDeclHandler <-
-          liftIO $
-          mkEndDoctypeDeclHandler $ \_ ->
-              addEvent EndDoctypeDecl
-              
-      parser <- 
-          liftIO $
-          do let encoding = nullPtr
-             xmlParserCreate encoding
-      _ <-
-          lift $ register $
-          xmlParserFree parser
-      let setHandler :: MonadResource m => 
-                        (XMLParser -> FunPtr a -> IO ()) -> FunPtr a -> m ()
-          setHandler m f =
-            do liftIO $ m parser f
-               _ <- register $ freeHaskellFunPtr f
-               return ()
-      lift $ do
-        setHandler xmlSetStartElementHandler startElementHandler
-        setHandler xmlSetEndElementHandler endElementHandler
-        setHandler xmlSetCharacterDataHandler characterDataHandler
-        setHandler xmlSetProcessingInstructionHandler processingInstructionHandler
-        setHandler xmlSetCommentHandler commentHandler
-        setHandler xmlSetStartCdataSectionHandler startCdataSectionHandler
-        setHandler xmlSetEndCdataSectionHandler endCdataSectionHandler
-        setHandler xmlSetStartDoctypeDeclHandler startDoctypeDeclHandler
-        setHandler xmlSetEndDoctypeDeclHandler endDoctypeDeclHandler
-      
-      let run = do
-            mBuf <- await
-            status <-
-                case mBuf of
-                  Just buf ->
-                     liftIO $
-                     B.useAsCStringLen buf $ \(str, len) ->
-                     xmlParse parser str (fromIntegral len) 0
-                  Nothing ->
+      let sendEvent =
+            putMVar output . Just
+          sendDone =
+            putMVar output Nothing
+               
+          parserProcess =
+              runResourceT $
+              do parser <- liftIO $
+                           xmlParserCreate nullPtr
+                 _ <- register $
                       liftIO $
-                      xmlParse parser nullPtr 0 1 
-            case status of
-              1 ->
-                  -- Success:
-                  flushEvents >>=
-                  mapM yield >>
-                  maybe (return ()) (const run) mBuf
-              _ ->
-                  -- Make error:
-                  liftIO $
-                  xmlGetErrorCode parser >>= xmlErrorString >>=
-                  (ExpatError . BC.unpack <$>) . B.packCString >>=
-                  monadThrow
-      run
-              
+                      xmlParserFree parser
+                      
+                 -- SAX Handlers
+                 startElementHandler <-
+                     liftIO $
+                     mkStartElementHandler $ \_ name attrs ->
+                     StartElement <$>
+                     cstringToText name <*>
+                     attrsToTexts attrs >>=
+                     sendEvent
+                 endElementHandler <-
+                     liftIO $
+                     mkEndElementHandler $ \_ name ->
+                     cstringToText name >>=
+                     sendEvent . EndElement
+                 characterDataHandler <-
+                     liftIO $
+                     mkCharacterDataHandler $ \_ buf len ->
+                     decodeUtf8 <$> B.packCStringLen (buf, fromIntegral len) >>=
+                     sendEvent . CharacterData
+                 processingInstructionHandler <-
+                     liftIO $
+                     mkProcessingInstructionHandler $ \_ target data_ ->
+                     ProcessingInstruction <$>
+                     cstringToText target <*>
+                     cstringToText data_ >>=
+                     sendEvent
+                 commentHandler <-
+                     liftIO $
+                     mkCommentHandler $ \_ s ->
+                         cstringToText s >>=
+                         sendEvent . Comment
+                 startCdataSectionHandler <-
+                     liftIO $
+                     mkStartCdataSectionHandler $ \_ ->
+                     sendEvent StartCdataSection
+                 endCdataSectionHandler <-
+                     liftIO $
+                     mkEndCdataSectionHandler $ \_ ->
+                     sendEvent EndCdataSection
+                 startDoctypeDeclHandler <-
+                     liftIO $
+                     mkStartDoctypeDeclHandler $ \_ doctypeName sysid pubid hasInternalSubset ->
+                         StartDoctypeDecl <$>
+                         cstringToText doctypeName <*>
+                         cstringToMaybeText sysid <*>
+                         cstringToMaybeText pubid <*>
+                         (pure $ hasInternalSubset /= 0) >>=
+                         sendEvent
+                 endDoctypeDeclHandler <-
+                     liftIO $
+                     mkEndDoctypeDeclHandler $ \_ ->
+                     sendEvent EndDoctypeDecl
+                 let setHandler :: MonadResource m => 
+                                   (XMLParser -> FunPtr a -> IO ()) -> FunPtr a -> m ()
+                     setHandler m f =
+                         do liftIO $ m parser f
+                            _ <- register $ freeHaskellFunPtr f
+                            return ()
+                 setHandler xmlSetStartElementHandler startElementHandler
+                 setHandler xmlSetEndElementHandler endElementHandler
+                 setHandler xmlSetCharacterDataHandler characterDataHandler
+                 setHandler xmlSetProcessingInstructionHandler processingInstructionHandler
+                 setHandler xmlSetCommentHandler commentHandler
+                 setHandler xmlSetStartCdataSectionHandler startCdataSectionHandler
+                 setHandler xmlSetEndCdataSectionHandler endCdataSectionHandler
+                 setHandler xmlSetStartDoctypeDeclHandler startDoctypeDeclHandler
+                 setHandler xmlSetEndDoctypeDeclHandler endDoctypeDeclHandler
+
+                 let readInput =
+                       do mData <- takeMVar input
+                          case mData of
+                            -- Push data
+                            Just buf ->
+                                B.useAsCStringLen buf $ \(str, len) ->
+                                    xmlParse parser str (fromIntegral len) 0
+                            -- EOF
+                            Nothing ->
+                                xmlParse parser nullPtr 0 1
+                                
+                          -- Events over for now, send next input
+                          sendDone
+                                   
+                          case mData of
+                            Just _ ->
+                                -- Loop
+                                readInput
+                            Nothing ->
+                                return ()
+                 liftIO readInput
+      -- Start parser
+      _ <- liftIO $ forkIO parserProcess
+      
+      let push =
+              do mInput <- await
+                 liftIO $
+                        putMVar input mInput
+                 
+                 let readOutput =
+                       do mEvent <- liftIO $
+                                    takeMVar output
+                          case mEvent of
+                            Just event ->
+                                yield event >>
+                                readOutput
+                            Nothing ->
+                                return ()
+                 readOutput
+                 
+                 case mInput of
+                   Just _ ->
+                       -- Loop
+                       push
+                   Nothing ->
+                       return ()
+      push
+      
 
 cstringToText :: CString -> IO Text
 cstringToText s = decodeUtf8 <$> B.packCString s
