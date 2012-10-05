@@ -12,7 +12,7 @@ import Control.Monad
 import Criterion.Main (defaultMain, bench)
 
 
-data Lib = LibXml | LibExpat
+data Lib = XmlConduit | LibExpat
          deriving (Show, Eq, Enum, Bounded)
 data Strictness = Lazy | Strict
                 deriving (Show, Eq, Enum, Bounded)
@@ -28,7 +28,7 @@ bufs s = let s' = LBC.concat [ "<r>\n"
 
 main = do
   defaultMain $ do
-    size <- [1, 2, 4, 16] -- , 64, 512, 1024]
+    size <- [1, 2, 4] --, 16, 64] --, 512, 1024]
     strictness <- [minBound..maxBound]
     lib <- [minBound..maxBound]
     let s = buf $ size * 1024
@@ -36,7 +36,7 @@ main = do
         source Strict lb = let b = BC.concat $ LBC.toChunks lb
                            in b `seq`
                               yield b
-        libConduit LibXml = XML.parseBytes def
+        libConduit XmlConduit = XML.parseBytes def
         libConduit LibExpat = Expat.parseBytes def =$= Expat.expatToXml
         title = show lib ++ " " ++ 
                 show strictness ++ " " ++ 
