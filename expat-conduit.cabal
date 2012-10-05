@@ -23,6 +23,7 @@ library
                    , data-default              >= 0.4      && < 0.6
                    , containers                >= 0.4      && < 0.5
                    , text                      >= 0.11     && < 0.12
+                   , stm                       >= 2.4      && < 3
     exposed-modules: Text.XML.Expat.Conduit
     other-modules:   Text.XML.Expat.Conduit.Internal
     ghc-options:     -Wall
