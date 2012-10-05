@@ -13,12 +13,21 @@ foreign import ccall unsafe "expat.h XML_ParserCreate"
                         
 -- actually an enum
 type XMLStatus = CInt
+xmlStatusError = 0
+xmlStatusOk = 1
+xmlStatusSuspended = 2
 
 -- | Most performance-critical function, but needs to be safe as it
 -- calls back into Haskell
 foreign import ccall safe "expat.h XML_Parse"
     xmlParse :: XMLParser -> CString -> CInt -> CInt -> IO XMLStatus
                 
+foreign import ccall unsafe "expat.h XML_StopParser"
+    xmlStopParser :: XMLParser -> CUChar -> IO XMLStatus
+
+foreign import ccall unsafe "expat.h XML_ResumeParser"
+    xmlResumeParser :: XMLParser -> IO XMLStatus
+
 foreign import ccall unsafe "expat.h XML_ParserFree"
     xmlParserFree :: XMLParser -> IO ()
                      
