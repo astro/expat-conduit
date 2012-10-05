@@ -7,6 +7,7 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy.Char8 as LBC
 import qualified Text.XML.Stream.Parse as XML
 import qualified Text.XML.Expat.Conduit as Expat
+import Text.XML.Stream.Render (renderBytes)
 import Data.Default (def)
 import Control.Monad
 import Criterion.Main (defaultMain, bench)
@@ -45,7 +46,8 @@ main = do
         f = 
           runResourceT $
           source strictness s $=
-          libConduit lib $$ 
+          libConduit lib =$=
+          renderBytes def $$ 
           sinkNull
     return $ bench title f
   
