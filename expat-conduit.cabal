@@ -20,7 +20,7 @@ library
                    , xml-types                 >= 0.3      && < 0.4
                    , bytestring                >= 0.9      && < 0.10
                    , mtl                       >= 2.1      && < 2.2
-                   , data-default              >= 0.4      && < 0.5
+                   , data-default              >= 0.4      && < 0.6
                    , containers                >= 0.4      && < 0.5
                    , text                      >= 0.11     && < 0.12
     exposed-modules: Text.XML.Expat.Conduit
