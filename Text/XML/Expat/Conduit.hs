@@ -11,6 +11,7 @@ import Foreign.Ptr
 import Foreign.Storable
 import Data.Default
 import Control.Concurrent hiding (yield)
+import Control.Concurrent.Chan
 import Control.Applicative
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -175,19 +176,19 @@ parseBytes' =
 ioProcess :: MonadIO m =>
              (IO (Maybe a) -> (Maybe b -> IO ()) -> IO ()) -> Conduit a m b
 ioProcess f =
-    do input <- liftIO newEmptyMVar
-       output <- liftIO newEmptyMVar
+    do input <- liftIO newChan
+       output <- liftIO newChan
        
        let recvInput =
-             takeMVar input
+             readChan input
            sendOutput =
-             putMVar output
+             writeChan output
        _ <- liftIO $
             forkIO $ 
             f recvInput sendOutput
               
        let consumeOutput =
-             do mOutput <- liftIO $ takeMVar output
+             do mOutput <- liftIO $ readChan output
                 case mOutput of
                   Just output' ->
                       do yield output'
@@ -197,7 +198,7 @@ ioProcess f =
                       return ()
            sendInput =
              do mInput <- await
-                liftIO $ putMVar input mInput
+                liftIO $ writeChan input mInput
                 
                 consumeOutput
                 
