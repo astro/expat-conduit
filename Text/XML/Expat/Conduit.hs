@@ -5,6 +5,7 @@ import Data.Conduit
 import Control.Monad.Trans
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as LB
 import Data.XML.Types hiding (doctypeName)
 import Foreign.C.String
 import Foreign.Ptr
@@ -21,6 +22,7 @@ import qualified Data.Map as Map
 import Control.Exception (Exception)
 import Data.Typeable (Typeable)
 import Control.Monad.Trans.Resource (register)
+import qualified Data.Conduit.List as CL
 
 
 import Text.XML.Expat.Conduit.Internal
@@ -48,6 +50,12 @@ data ParseSettings = ParseSettings
 instance Default ParseSettings where
     def = ParseSettings
 
+parseLBS :: (MonadThrow m, MonadResource m)
+         => ParseSettings
+         -> LB.ByteString
+         -> Source m ExpatEvent
+-- TODO: use >+>
+parseLBS ps lbs = CL.sourceList (LB.toChunks lbs) =$= parseBytes ps
 
 parseBytes :: (MonadThrow m, MonadResource m) =>
               ParseSettings ->
